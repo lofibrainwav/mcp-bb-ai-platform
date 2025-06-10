@@ -1,0 +1,151 @@
+version: '3.8'
+
+services:
+  # 1. Next.js AI Platform (메인 서비스)
+  mcp-bb-platform:
+    build: 
+      context: .
+      dockerfile: Dockerfile.nextjs
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=mysql://root:password@mysql:3306/mcp_bb
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - frontend
+      - backend
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: '0.5'
+
+  # 2. MySQL Database
+  mysql:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=password
+      - MYSQL_DATABASE=mcp_bb
+      - MYSQL_USER=mcp_user
+      - MYSQL_PASSWORD=mcp_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - database
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: '1.0'
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # 3. Redis (캐싱 & 세션)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: '0.25'
+
+  # 4. Qdrant Vector Database (AI 임베딩)
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - backend
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: '0.5'
+
+  # 5. VS Code Server (개발 환경)
+  vscode-server:
+    image: codercom/code-server:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - PASSWORD=mcp-bb-2024
+    volumes:
+      - .:/home/coder/project
+      - vscode_extensions:/home/coder/.local/share/code-server
+    networks:
+      - frontend
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: '0.5'
+
+  # 6. n8n Workflow Automation
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=password
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - frontend
+      - backend
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: '0.5'
+
+  # 7. Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3333:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - frontend
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: '0.25'
+
+networks:
+  frontend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  backend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+  database:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
+
+volumes:
+  mysql_data:
+  redis_data:
+  qdrant_data:
+  vscode_extensions:
+  n8n_data:
+  grafana_data:
